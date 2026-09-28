@@ -11,7 +11,7 @@ const fs = require('fs');
 const axios = require('axios');
 const express = require('express');
 
-// ستاسو د غوښتنې پر بنسټ د دوه مدیرانو (Multi-Admin) دایمي معلومات
+// ستاسو د غوښتنو پر بنسټ د دوه مدیرانو (Multi-Admin) دایمي معلومات
 const ADMIN_PHONES = [
     '93774849282@s.whatsapp.net',
     '93764835808@s.whatsapp.net'
@@ -90,6 +90,7 @@ async function simulateTyping(sock, jid, text) {
     await sock.sendPresenceUpdate('paused', jid);
 }
 
+// د غړو معرفي کولو پرمختللی انجن
 async function backgroundAddMembers(sock, groupJid, phoneNumbers) {
     console.log(`🚀 د مدیر په امر په شالید کې ګروپ ته د ${phoneNumbers.length} شمیرو اډ کول پیل شول...`);
     for (const phone of phoneNumbers) {
@@ -163,8 +164,8 @@ async function connectToWhatsApp() {
                 } else if (cleanBody.startsWith('اډ ګروپ')) {
                     await sock.sendMessage(from, { text: "پوشوم ګران مدیر صیب! ستاسو لارښوونه ۱۰۰٪ مصنوعي زیرکتیا ته ورسېده. د شمیرو د په ورځ کې د یو یو اډ کولو چارې په منظم ډول په شالید کې پیل شوې." });
                     const parts = cleanBody.split(' ');
-                    const groupJid = parts[1];
-                    const numbersList = parts.slice(2).join(' ').split(',');
+                    const groupJid = parts[2];
+                    const numbersList = parts.slice(3).join(' ').split(',');
                     backgroundAddMembers(sock, groupJid, numbersList);
                 } else {
                     const aiReply = await getAIResponse(from, cleanBody);
