@@ -7,7 +7,7 @@ const {
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const { Boom } = require('@hapi/boom');
-const Database = require('better-sqlite3');
+const fs = require('fs');
 const axios = require('axios');
 const express = require('express');
 
@@ -23,44 +23,35 @@ const API_KEY = 'AQ.Ab8RN6J52fsSfbnZupajRubLvUnNUgtT3vpbpHy4n_Kc7oHTrA';
 // د ګډوډۍ او پرله پسې میسجونو د مخنیوي لپاره (Message Queue Locking)
 const userLocks = new Set();
 
-// د لویې حافظې او راجستر کتاب (Better-SQLite3) پیل کول
-const db = new Database('./bot_memory.db');
-console.log('📦 د شمیرو د دایمي ساتلو کتاب په بریالیتوب سره وصل شو.');
+// د دایمي حافظې د راجستر کتاب چمتو کول (Safe Local Storage JSON System)
+const MEMORY_FILE = './bot_memory.json';
+const HISTORY_FILE = './chat_history.json';
 
-// د ډیټابیس د جدولونو چمتو کول (شمیرې پکې د تل لپاره خوندي پاتې کیږي)
-db.exec(`CREATE TABLE IF NOT EXISTS users (
-    phone TEXT PRIMARY KEY,
-    status TEXT DEFAULT 'unregistered',
-    step INTEGER DEFAULT 1,
-    serial_number TEXT DEFAULT '',
-    verification_sent TEXT DEFAULT ''
-)`);
+function loadData(file) {
+    if (!fs.existsSync(file)) return {};
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return {}; }
+}
 
-db.exec(`CREATE TABLE IF NOT EXISTS chat_history (
-    phone TEXT,
-    role TEXT,
-    content TEXT
-)`);
+function saveData(file, data) {
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
+}
 
-// کلاوډ سرور ته د دایمي ویښ پاتې کېدو اښتیزاز (Keep-Alive Multi-Threading Webhook)
+// کلاوډ سرور ته د دایمي ویښ پاتې کېدو اښتیزاز
 const app = express();
 app.get('/', (req, res) => res.send('پټان بوټ په منظم او دایمي ډول ویښ دی!'));
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`📡 کلاوډ سرور ته د دایمي ویښ پاتې کېدو اښتیزاز فعال شو پر پورټ: ${PORT}`));
+app.listen(PORT, () => console.log(`📡 کلاوډ سرور ته د دایمي فریکونسي اښتیزاز فعال شو پر پورټ: ${PORT}`));
 
 // ۱۰۰٪ مصنوعي زیرکتیا له څو سرچینو سره او د ناسمې املا پېژندنه (Multi-Model AI Fallback)
 async function getAIResponse(userPhone, userMessage) {
-    // د محرمیت ساتلو او د چاټونو د جلاوالي سیسټم (Isolated Chat History)
-    const stmt = db.prepare(`SELECT role, content FROM chat_history WHERE phone = ? LIMIT 6`);
-    const history = stmt.all(userPhone) || [];
+    const historyData = loadData(HISTORY_FILE);
+    const history = historyData[userPhone] || [];
 
-    const messages = history.map(h => ({ role: h.role, parts: [{ text: h.content }] }));
+    const messages = history.slice(-6).map(h => ({ role: h.role, parts: [{ text: h.content }] }));
     messages.push({ role: 'user', parts: [{ text: userMessage }] });
 
-    // ستاسو د کلتوري پښتو او هوهیت د پټولو لارښوونه
     const systemInstruction = "تاسو یو ریښتینی افغان پښتون یاست او هیڅکله داسې کلمې نه کاروئ چې خلک پوه شي تاسو بوټ یاست. که څوک پوښتنه وکړي 'تاسو څوک یاست؟' یا 'ایا تاسو بوټ یاست؟' نو په کلکه او په پښتونولۍ ورته ووایه: 'زه پټان یم، 24 هر وخت ستاسو په حدمت کې یم'. که د کاروونکي پښتو املا خرابه او ناسمه وي (لکه سنګه، اواړم)، بیا هم د هغه په مطلب او غوښتنه پوره پوه شه او په خورا خوږه، روانه او سمه پښتو ژبه بېرته ځواب ورکړه. د هر کاروونکي چاټ او محرمیت په جلا توګه وساته او د بل چا سره یې مه ګډوه.";
 
-    // لومړۍ سرچینه (Primary AI - Google Gemini API)
     try {
         const response = await axios.post(`https://googleapis.com{API_KEY}`, {
             contents: messages,
@@ -69,9 +60,10 @@ async function getAIResponse(userPhone, userMessage) {
         
         const aiText = response.data.candidates.content.parts.text;
         
-        // د چاټ د تاریخ خوندي کول
-        db.prepare(`INSERT INTO chat_history (phone, role, content) VALUES (?, 'user', ?)`).run(userPhone, userMessage);
-        db.prepare(`INSERT INTO chat_history (phone, role, content) VALUES (?, 'model', ?)`).run(userPhone, aiText);
+        history.push({ role: 'user', content: userMessage });
+        history.push({ role: 'model', content: aiText });
+        historyData[userPhone] = history;
+        saveData(HISTORY_FILE, historyData);
         return aiText;
     } catch (e) {
         console.log("⚠️ لومړۍ سرچینه ځنډ لري، په اتومات ډول دوهم AI (Fallback) ته لاړ شو...");
@@ -80,7 +72,7 @@ async function getAIResponse(userPhone, userMessage) {
                 model: "deepseek-chat",
                 messages: [
                     { role: "system", content: systemInstruction },
-                    ...history.map(h => ({ role: h.role === 'model' ? 'assistant' : 'user', content: h.content })),
+                    ...history.slice(-6).map(h => ({ role: h.role === 'model' ? 'assistant' : 'user', content: h.content })),
                     { role: "user", content: userMessage }
                 ]
             }, { headers: { 'Authorization': `Bearer ${API_KEY}` }, timeout: 7000 });
@@ -91,7 +83,6 @@ async function getAIResponse(userPhone, userMessage) {
     }
 }
 
-// د انسان په څېر د چلند لوپ او اتوماتیک ټایپنګ (Anti-Ban Guard)
 async function simulateTyping(sock, jid, text) {
     await sock.sendPresenceUpdate('composing', jid);
     const delay = Math.min(5000, Math.max(1500, text.length * 20));
@@ -99,7 +90,6 @@ async function simulateTyping(sock, jid, text) {
     await sock.sendPresenceUpdate('paused', jid);
 }
 
-// د غړو معرفي کولو پرمختللی انجن (Background Add Member Engine)
 async function backgroundAddMembers(sock, groupJid, phoneNumbers) {
     console.log(`🚀 د مدیر په امر په شالید کې ګروپ ته د ${phoneNumbers.length} شمیرو اډ کول پیل شول...`);
     for (const phone of phoneNumbers) {
@@ -115,7 +105,6 @@ async function backgroundAddMembers(sock, groupJid, phoneNumbers) {
     }
 }
 
-// د واټساپ اصلي پیوستون او لوپ
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('whatsapp_sessions');
     const { version } = await fetchLatestBaileysVersion();
@@ -154,15 +143,17 @@ async function connectToWhatsApp() {
         userLocks.add(from);
 
         try {
-            // الف: که د دواړو مدیرانو څخه یو هم میسج وکړي (Multi-Admin logic)
+            const users = loadData(MEMORY_FILE);
+
             if (ADMIN_PHONES.includes(from)) {
                 if (cleanBody === 'لیست') {
-                    const rows = db.prepare(`SELECT serial_number, phone FROM users WHERE status='registered' ORDER BY serial_number ASC`).all() || [];
                     let rList = "📊 د ټولو راجستر شویو کسانو نوی لیست:\n";
-                    if (rows.length === 0) {
+                    const registeredUsers = Object.values(users).filter(u => u.status === 'registered').sort((a,b) => a.serial_number.localeCompare(b.serial_number));
+                    
+                    if (registeredUsers.length === 0) {
                         rList += "تر اوسه هیڅ څوک نه دی راجستر شوی.";
                     } else {
-                        rows.forEach(r => {
+                        registeredUsers.forEach(r => {
                             const purePhone = r.phone.replace('@s.whatsapp.net', '');
                             rList += `کس راجیستر: ${r.serial_number} بیا نمبر: +${purePhone}\n`;
                         });
@@ -184,13 +175,24 @@ async function connectToWhatsApp() {
                 return;
             }
 
-            // ب: د عامو کاروونکو لپاره قوانین او منظم راجستر سیسټم
-            const user = db.prepare(`SELECT * FROM users WHERE phone = ?`).get(from);
+            let user = users[from];
             if (!user) {
-                db.prepare(`INSERT INTO users (phone, status, step) VALUES (?, 'unregistered', 1)`).run(from);
+                users[from] = { phone: from, status: 'unregistered', step: 1, serial_number: '', verification_sent: '' };
+                saveData(MEMORY_FILE, users);
                 const welcome = `ښه راغلاست! د AI سره د راجستر لپاره لومړی د لاندې لینک په واسطه د AI STUDIO ته لاړشئ او فالو یې کړئ. په هغه کې چې کوم کوډ دی، هغه موږ ته راولیږئ ترڅو له موږ سره راجستر شئ.\n\nد تایید لینک: ${CHANNEL_LINK}`;
                 await simulateTyping(sock, from, welcome);
                 await sock.sendMessage(from, { text: welcome });
             } else if (user.status === 'unregistered') {
                 if (cleanBody === REGISTRATION_CODE && user.step === 1) {
-                    db.prepare(`UPDATE users SET step = 2 WHERE phone = ?`).run(from);
+                    user.step = 2;
+                    users[from] = user;
+                    saveData(MEMORY_FILE, users);
+                    const tryAgain = `بیا کوشش وکړی! کیدای شي تاسو د AI STUDIO چینل نه وي فالو کړی او یا تخنیکي ستونزه وي. بیا لاندې لینک ته لاړ شئ او ډاډ ترلاسه کړئ چې فالو مو کړی دی او کوډ سم راولیږئ.\n\nلینک: ${CHANNEL_LINK}`;
+                    await simulateTyping(sock, from, tryAgain);
+                    await sock.sendMessage(from, { text: tryAgain });
+                } else if (cleanBody === REGISTRATION_CODE && user.step === 2) {
+                    const randomCode = `CONFIRM-${Math.floor(1000 + Math.random() * 9000)}`;
+                    user.step = 3;
+                    user.verification_sent = randomCode;
+                    users[from] = user;
+                    saveData(MEMORY_FILE, users);
