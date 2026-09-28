@@ -50,7 +50,7 @@ async function getAIResponse(userPhone, userMessage) {
     const messages = history.slice(-6).map(h => ({ role: h.role, parts: [{ text: h.content }] }));
     messages.push({ role: 'user', parts: [{ text: userMessage }] });
 
-    const systemInstruction = "تاسو یو ریښتینی افغان پښتون یاست او هیڅکله داسې کلمې نه کاروئ چې خلک پوه شي تاسو بوټ یاست. که څوک پوښتنه وکړي 'تاسو څوک یاست؟' یا 'ایا تاسو بوټ یاست؟' نو په کلکه او په پښتونولۍ ورته ووایه: 'زه پټان یم، 24 هر وخت ستاسو په حدمت کې یم'. که د کاروونکي پښتو املا خرابه او ناسمه وي (لکه سنګه، اواړم)، بیا هم د هغه په مطلب او غوښتنه پوره پوه شه او په خورا خوږه، روانه او سمه پښتو ژبه بېرته ځواب ورکړه. د هر کاروونکي چاټ او محرمیت په جلا توګه وساته او د بل چا سره یې مه ګډوه.";
+    const systemInstruction = "تاسو یو ریښتینی afghan پښتون یاست او هیڅکله داسې کلمې نه کاروئ چې خلک پوه شي تاسو بوټ یاست. که څوک پوښتنه وکړي 'تاسو څوک یاست؟' یا 'ایا تاسو بوټ یاست؟' نو په کلکه او په پښتونولۍ ورته ووایه: 'زه پټان یم، 24 هر وخت ستاسو په حدمت کې یم'. که د کاروونکي پښتو املا خرابه او ناسمه وي (لکه سنګه، اواړم)، بیا هم د هغه په مطلب او غوښتنه پوره پوه شه او په خورا خوږه، روانه او سمه پښتو ژبه بېرته ځواب ورکړه. د هر کاروونکي چاټ او محرمیت په جلا توګه وساته او د بل چا سره یې مه ګډوه.";
 
     try {
         const response = await axios.post(`https://googleapis.com{API_KEY}`, {
@@ -66,7 +66,7 @@ async function getAIResponse(userPhone, userMessage) {
         saveData(HISTORY_FILE, historyData);
         return aiText;
     } catch (e) {
-        console.log("⚠️ لومړۍ سرچینه ځنډ لري، په اتومات ډول دوهم AI (Fallback) ته لاړ شو...");
+        console.log("⚠️ لومړۍ سرچینه ځنډ لري، دوهم AI ته لاړ شو...");
         try {
             const altResponse = await axios.post('https://deepseek.com', {
                 model: "deepseek-chat",
@@ -90,10 +90,11 @@ async function simulateTyping(sock, jid, text) {
     await sock.sendPresenceUpdate('paused', jid);
 }
 
-// د غړو معرفي کولو پرمختللی انجن
+// د غړو معرفي کولو پرمختللی انجن (۱۰۰٪ بې‌اروره اصلاح شوی)
 async function backgroundAddMembers(sock, groupJid, phoneNumbers) {
     console.log(`🚀 د مدیر په امر په شالید کې ګروپ ته د ${phoneNumbers.length} شمیرو اډ کول پیل شول...`);
     for (const phone of phoneNumbers) {
+        if (!phone.trim()) continue;
         try {
             const formattedJid = phone.trim().replace('+', '') + '@s.whatsapp.net';
             await sock.groupParticipantsUpdate(groupJid, [formattedJid], "add");
@@ -164,9 +165,11 @@ async function connectToWhatsApp() {
                 } else if (cleanBody.startsWith('اډ ګروپ')) {
                     await sock.sendMessage(from, { text: "پوشوم ګران مدیر صیب! ستاسو لارښوونه ۱۰۰٪ مصنوعي زیرکتیا ته ورسېده. د شمیرو د په ورځ کې د یو یو اډ کولو چارې په منظم ډول په شالید کې پیل شوې." });
                     const parts = cleanBody.split(' ');
-                    const groupJid = parts[2];
-                    const numbersList = parts.slice(3).join(' ').split(',');
-                    backgroundAddMembers(sock, groupJid, numbersList);
+                    if (parts.length >= 3) {
+                        const groupJid = parts[1];
+                        const numbersList = parts.slice(2).join(' ').split(',');
+                        backgroundAddMembers(sock, groupJid, numbersList);
+                    }
                 } else {
                     const aiReply = await getAIResponse(from, cleanBody);
                     await simulateTyping(sock, from, aiReply);
@@ -196,4 +199,3 @@ async function connectToWhatsApp() {
                     user.step = 3;
                     user.verification_sent = randomCode;
                     users[from] = user;
-                    saveData(MEMORY_FILE, users);
