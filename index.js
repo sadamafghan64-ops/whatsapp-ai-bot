@@ -1,481 +1,35 @@
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  isJidGroup
-} = require("@whiskeysockets/baileys");
-
-const { Boom } = require("@hapi/boom");
-const pino = require("pino");
-const express = require("express");
-const axios = require("axios");
-const fs = require("fs");
-const path = require("path");
-
-// ===============================
-// SETTINGS
-// ===============================
-
-const PORT = Number(process.env.PORT) || 10000;
-
-const GEMINI_API_KEY =
-  process.env.GEMINI_API_KEY || "";
-
-// خپل WhatsApp نمبر دلته ولیکه
-// مثال: 937XXXXXXXXX
-// + مه لیکه
-const PHONE_NUMBER =
-  process.env.WHATSAPP_PHONE || "";
-
-const ADMIN_NUMBERS = [
-  "93774849282@s.whatsapp.net",
-  "93764835808@s.whatsapp.net"
-];
-
-const AUTH_DIR = path.join(
-  __dirname,
-  "whatsapp_sessions"
-);
-
-const MEMORY_FILE = path.join(
-  __dirname,
-  "bot_memory.json"
-);
-
-const HISTORY_FILE = path.join(
-  __dirname,
-  "chat_history.json"
-);
-
-// ===============================
-// EXPRESS
-// ===============================
-
-const app = express();
-
-app.use(express.json());
-
-app.get("/", (req, res) => {
-  res.send("WhatsApp AI Bot is running ✅");
-});
-
-app.get("/health", (req, res) => {
-  res.json({
-    status: "online",
-    bot: "WhatsApp AI Bot",
-    time: new Date().toISOString()
-  });
-});
-
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(
-    `🌐 Server running on port ${PORT}`
-  );
-});
-
-// ===============================
-// JSON
-// ===============================
-
-function loadJSON(file, defaultValue) {
-  try {
-    if (!fs.existsSync(file)) {
-      fs.writeFileSync(
-        file,
-        JSON.stringify(
-          defaultValue,
-          null,
-          2
-        )
-      );
-
-      return defaultValue;
-    }
-
-    return JSON.parse(
-      fs.readFileSync(file, "utf8")
-    );
-
-  } catch (error) {
-    console.log(
-      "JSON load error:",
-      error.message
-    );
-
-    return defaultValue;
-  }
-}
-
-function saveJSON(file, data) {
-  try {
-    fs.writeFileSync(
-      file,
-      JSON.stringify(
-        data,
-        null,
-        2
-      ),
-      "utf8"
-    );
-
-  } catch (error) {
-    console.log(
-      "JSON save error:",
-      error.message
-    );
-  }
-}
-
-// ===============================
-// DATA
-// ===============================
-
-let botMemory = loadJSON(
-  MEMORY_FILE,
-  {}
-);
-
-let chatHistory = loadJSON(
-  HISTORY_FILE,
-  {}
-);
-
-// ===============================
-// GEMINI
-// ===============================
-
-async function askAI(
-  userMessage,
-  userId
-) {
-
-  if (!GEMINI_API_KEY) {
-    return "⚠️ GEMINI_API_KEY تنظیم شوی نه دی.";
-  }
-
-  try {
-
-    const oldHistory =
-      chatHistory[userId] || [];
-
-    const recentHistory =
-      oldHistory
-        .slice(-10)
-        .map(
-          item =>
-            `${item.role}: ${item.text}`
-        )
-        .join("\n");
-
-    const prompt = `
-You are a helpful WhatsApp AI assistant.
-
-Answer the user naturally and clearly.
-
-Previous conversation:
-${recentHistory}
-
-New user message:
-${userMessage}
-
-Give a useful answer.
-`;
-
-    const url =
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
-
-    const response =
-      await axios.post(
-        url,
-        {
-          contents: [
-            {
-              parts: [
-                {
-                  text: prompt
-                }
-              ]
-            }
-          ]
-        },
-        {
-          params: {
-            key: GEMINI_API_KEY
-          },
-          timeout: 30000
-        }
-      );
-
-    const parts =
-      response.data
-        ?.candidates?.[0]
-        ?.content?.parts || [];
-
-    const answer =
-      parts
-        .map(
-          part => part.text || ""
-        )
-        .join("")
-        .trim();
-
-    if (!answer) {
-      return "بښنه، اوس ځواب نشم جوړولای.";
-    }
-
-    return answer;
-
-  } catch (error) {
-
-    console.log(
-      "Gemini error:",
-      error.response?.data ||
-      error.message
-    );
-
-    return "بښنه، د AI له سرور سره ستونزه ده. لږ وروسته بیا هڅه وکړه.";
-  }
-}
-
-// ===============================
-// SEND MESSAGE
-// ===============================
-
-async function sendReply(
-  sock,
-  jid,
-  text
-) {
-
-  try {
-
-    await sock.sendPresenceUpdate(
-      "composing",
-      jid
-    );
-
-    await new Promise(
-      resolve =>
-        setTimeout(
-          resolve,
-          700
-        )
-    );
-
-    await sock.sendMessage(
-      jid,
-      {
-        text
-      }
-    );
-
-    await sock.sendPresenceUpdate(
-      "paused",
-      jid
-    );
-
-  } catch (error) {
-
-    console.log(
-      "Send error:",
-      error.message
-    );
-  }
-}
-
-// ===============================
-// SAVE USER
-// ===============================
-
-function saveUser(userId) {
-
-  if (!botMemory[userId]) {
-
-    botMemory[userId] = {
-      phone: userId,
-      firstMessage:
-        new Date().toISOString(),
-      messages: 0,
-      lastMessage: null
-    };
-  }
-
-  botMemory[userId].messages += 1;
-
-  botMemory[userId].lastMessage =
-    new Date().toISOString();
-
-  saveJSON(
-    MEMORY_FILE,
-    botMemory
-  );
-}
-
-// ===============================
-// SAVE CHAT
-// ===============================
-
-function saveChat(
-  userId,
-  role,
-  text
-) {
-
-  if (!chatHistory[userId]) {
-    chatHistory[userId] = [];
-  }
-
-  chatHistory[userId].push({
-    role,
-    text,
-    time:
-      new Date().toISOString()
-  });
-
-  if (
-    chatHistory[userId].length >
-    30
-  ) {
-
-    chatHistory[userId] =
-      chatHistory[userId]
-        .slice(-30);
-  }
-
-  saveJSON(
-    HISTORY_FILE,
-    chatHistory
-  );
-}
-
-// ===============================
-// ADMIN
-// ===============================
-
-function isAdmin(jid) {
-  return ADMIN_NUMBERS.includes(jid);
-}
-
-async function handleAdminCommand(
-  sock,
-  jid,
-  text
-) {
-
-  const command =
-    text.trim().toLowerCase();
-
-  if (command === "حالت") {
-
-    await sendReply(
-      sock,
-      jid,
-      "✅ بوټ فعال دی او WhatsApp سره وصل دی."
-    );
-
-    return true;
-  }
-
-  if (command === "ping") {
-
-    await sendReply(
-      sock,
-      jid,
-      "pong ✅"
-    );
-
-    return true;
-  }
-
-  if (command === "لیست") {
-
-    const users =
-      Object.values(botMemory);
-
-    if (users.length === 0) {
-
-      await sendReply(
-        sock,
-        jid,
-        "تر اوسه هېڅ کارن ثبت شوی نه دی."
-      );
-
-      return true;
-    }
-
-    const list =
-      users
-        .slice(-100)
-        .map(
-          (user, index) =>
-            `${index + 1}. ${user.phone} — ${user.messages} messages`
-        )
-        .join("\n");
-
-    await sendReply(
-      sock,
-      jid,
-      `👥 Users:\n\n${list}`
-    );
-
-    return true;
-  }
-
-  return false;
-}
-
-// ===============================
-// WHATSAPP
-// ===============================
+// ==================================================
+// WHATSAPP QR CONNECTION
+// ==================================================
 
 let reconnectTimer = null;
-let pairingRequested = false;
+let latestQR = "";
 
-async function startBot() {
-
+async function connectToWhatsApp() {
   try {
-
-    console.log(
-      "🚀 Starting WhatsApp bot..."
-    );
+    console.log("🚀 WhatsApp starting...");
 
     const {
       state,
       saveCreds
-    } = await useMultiFileAuthState(
-      AUTH_DIR
-    );
+    } = await useMultiFileAuthState(AUTH_DIR);
 
-    const sock =
-      makeWASocket({
+    const sock = makeWASocket({
+      auth: state,
 
-        auth: state,
+      logger: pino({
+        level: "silent"
+      }),
 
-        logger:
-          pino({
-            level: "silent"
-          }),
+      markOnlineOnConnect: false,
+      syncFullHistory: false
+    });
 
-        markOnlineOnConnect:
-          false,
-
-        syncFullHistory:
-          false
-      });
-
-    // Save WhatsApp credentials
-    sock.ev.on(
-      "creds.update",
-      saveCreds
-    );
-
-    // =========================
-    // CONNECTION
-    // =========================
+    sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on(
       "connection.update",
-      async update => {
+      async (update) => {
 
         const {
           connection,
@@ -483,108 +37,45 @@ async function startBot() {
           qr
         } = update;
 
-        // =====================
-        // PAIRING CODE
-        // =====================
+        // ------------------------------------------
+        // QR CODE
+        // ------------------------------------------
 
-        if (
-          !state.creds.registered &&
-          (connection === "connecting" || qr) &&
-          !pairingRequested
-        ) {
+        if (qr) {
+          latestQR = qr;
 
-          pairingRequested = true;
-
-          if (!PHONE_NUMBER) {
-
-            console.log(
-              "❌ WHATSAPP_PHONE is missing."
-            );
-
-            console.log(
-              "Render Environment Variables کې WHATSAPP_PHONE اضافه کړه."
-            );
-
-            return;
-          }
-
-          try {
-
-            const code =
-              await sock.requestPairingCode(
-                PHONE_NUMBER
-              );
-
-            console.log("");
-            console.log(
-              "================================"
-            );
-            console.log(
-              "📱 WHATSAPP PAIRING CODE"
-            );
-            console.log(
-              "================================"
-            );
-            console.log(
-              code
-            );
-            console.log(
-              "================================"
-            );
-            console.log(
-              "WhatsApp → Settings → Linked devices → Link a device → Link with phone number"
-            );
-            console.log(
-              "================================"
-            );
-            console.log("");
-
-          } catch (error) {
-
-            pairingRequested =
-              false;
-
-            console.log(
-              "❌ Pairing code error:",
-              error.message
-            );
-          }
+          console.log("");
+          console.log("================================");
+          console.log("📱 NEW WHATSAPP QR CODE");
+          console.log("================================");
+          console.log("QR Code ready at:");
+          console.log(
+            "https://YOUR-RENDER-SERVICE.onrender.com/qr"
+          );
+          console.log("================================");
+          console.log("");
         }
 
-        // =====================
+        // ------------------------------------------
         // CONNECTED
-        // =====================
+        // ------------------------------------------
 
-        if (
-          connection === "open"
-        ) {
+        if (connection === "open") {
 
-          pairingRequested =
-            false;
+          latestQR = "";
 
           console.log("");
-          console.log(
-            "================================"
-          );
-          console.log(
-            "✅ WHATSAPP CONNECTED"
-          );
-          console.log(
-            "================================"
-          );
+          console.log("================================");
+          console.log("✅ WHATSAPP CONNECTED");
+          console.log("================================");
           console.log("");
         }
 
-        // =====================
+        // ------------------------------------------
         // DISCONNECTED
-        // =====================
+        // ------------------------------------------
 
-        if (
-          connection === "close"
-        ) {
-
-          pairingRequested =
-            false;
+        if (connection === "close") {
 
           const statusCode =
             new Boom(
@@ -600,183 +91,350 @@ async function startBot() {
             statusCode ===
             DisconnectReason.loggedOut
           ) {
-
             console.log(
               "⚠️ WhatsApp logged out."
-            );
-
-            console.log(
-              "د بیا Login لپاره نوې session ته اړتیا ده."
             );
 
             return;
           }
 
-          if (
-            reconnectTimer
-          ) {
-            clearTimeout(
-              reconnectTimer
-            );
+          if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
           }
 
-          reconnectTimer =
-            setTimeout(
-              () => {
-                startBot();
-              },
-              5000
-            );
+          reconnectTimer = setTimeout(() => {
+            connectToWhatsApp();
+          }, 5000);
         }
       }
     );
 
-    // =========================
+    // ------------------------------------------
     // MESSAGES
-    // =========================
+    // ------------------------------------------
 
     sock.ev.on(
       "messages.upsert",
-      async ({ messages }) => {
+      async ({
+        messages,
+        type
+      }) => {
 
-        for (
-          const message
-          of messages
-        ) {
+        if (type !== "notify") {
+          return;
+        }
+
+        for (const msg of messages) {
 
           try {
 
-            if (
-              !message.message
-            ) {
+            if (!msg.message) {
               continue;
             }
 
-            if (
-              message.key.fromMe
-            ) {
+            if (msg.key.fromMe) {
               continue;
             }
 
-            const jid =
-              message.key.remoteJid;
+            const from =
+              msg.key.remoteJid;
 
-            if (!jid) {
+            if (!from) {
               continue;
             }
 
-            // Ignore groups
-            if (
-              isJidGroup(jid)
-            ) {
+            if (isJidGroup(from)) {
               continue;
             }
 
-            const content =
-              message.message;
+            const message =
+              msg.message;
 
-            let text = "";
+            let body = "";
 
-            if (
-              content.conversation
-            ) {
+            if (message.conversation) {
 
-              text =
-                content.conversation;
+              body =
+                message.conversation;
 
             } else if (
-              content
+              message
                 .extendedTextMessage
                 ?.text
             ) {
 
-              text =
-                content
+              body =
+                message
                   .extendedTextMessage
                   .text;
 
             } else if (
-              content
+              message
                 .imageMessage
                 ?.caption
             ) {
 
-              text =
-                content
+              body =
+                message
                   .imageMessage
                   .caption;
 
             } else if (
-              content
+              message
                 .videoMessage
                 ?.caption
             ) {
 
-              text =
-                content
+              body =
+                message
                   .videoMessage
                   .caption;
             }
 
-            text =
-              text.trim();
+            const cleanBody =
+              body.trim();
 
-            if (!text) {
+            if (!cleanBody) {
               continue;
             }
 
-            console.log(
-              `📩 ${jid}: ${text}`
-            );
-
-            saveUser(jid);
-
-            saveChat(
-              jid,
-              "user",
-              text
-            );
-
-            // Admin commands
-            if (
-              isAdmin(jid)
-            ) {
-
-              const handled =
-                await handleAdminCommand(
-                  sock,
-                  jid,
-                  text
-                );
-
-              if (handled) {
-                continue;
-              }
+            if (userLocks.has(from)) {
+              continue;
             }
 
-            // AI
-            const answer =
-              await askAI(
-                text,
-                jid
-              );
+            userLocks.add(from);
 
-            saveChat(
-              jid,
-              "assistant",
-              answer
-            );
+            try {
 
-            await sendReply(
-              sock,
-              jid,
-              answer
-            );
+              const users =
+                loadData(MEMORY_FILE);
+
+              // ADMIN
+              if (isAdmin(from)) {
+
+                const handled =
+                  await handleAdmin(
+                    sock,
+                    from,
+                    cleanBody
+                  );
+
+                if (handled) {
+                  continue;
+                }
+
+                const aiReply =
+                  await getAIResponse(
+                    from,
+                    cleanBody
+                  );
+
+                await sendMessage(
+                  sock,
+                  from,
+                  aiReply
+                );
+
+                continue;
+              }
+
+              // NEW USER
+              if (!users[from]) {
+
+                users[from] = {
+                  phone: from,
+                  status: "unregistered",
+                  step: 1,
+                  serial_number: "",
+                  verification_sent: "",
+                  created_at:
+                    new Date().toISOString(),
+                  last_message:
+                    new Date().toISOString(),
+                  messages: 1
+                };
+
+                saveData(
+                  MEMORY_FILE,
+                  users
+                );
+
+                await sendMessage(
+                  sock,
+                  from,
+                  `ښه راغلاست! 🌷\n\n` +
+                  `د راجستر لپاره لاندې لینک ته لاړ شئ او اړوند کار بشپړ کړئ، بیا ترلاسه شوی کوډ دلته راولېږئ.\n\n` +
+                  `لینک:\n${CHANNEL_LINK}`
+                );
+
+                continue;
+              }
+
+              const user = users[from];
+
+              // REGISTERED USER
+              if (
+                user.status ===
+                "registered"
+              ) {
+
+                const aiReply =
+                  await getAIResponse(
+                    from,
+                    cleanBody
+                  );
+
+                await sendMessage(
+                  sock,
+                  from,
+                  aiReply
+                );
+
+                continue;
+              }
+
+              // STEP 1
+              if (user.step === 1) {
+
+                if (
+                  cleanBody ===
+                  REGISTRATION_CODE
+                ) {
+
+                  user.step = 2;
+
+                  saveData(
+                    MEMORY_FILE,
+                    users
+                  );
+
+                  await sendMessage(
+                    sock,
+                    from,
+                    "ستاسو کوډ ترلاسه شو ✅\n\nاوس دوهم پړاو ته لاړ شو."
+                  );
+
+                } else {
+
+                  await sendMessage(
+                    sock,
+                    from,
+                    `⚠️ کوډ سم نه دی.\n\n${CHANNEL_LINK}`
+                  );
+                }
+
+                continue;
+              }
+
+              // STEP 2
+              if (user.step === 2) {
+
+                if (
+                  cleanBody ===
+                  REGISTRATION_CODE
+                ) {
+
+                  const randomCode =
+                    `CONFIRM-${Math.floor(
+                      1000 +
+                      Math.random() * 9000
+                    )}`;
+
+                  user.step = 3;
+
+                  user.verification_sent =
+                    randomCode;
+
+                  saveData(
+                    MEMORY_FILE,
+                    users
+                  );
+
+                  await sendMessage(
+                    sock,
+                    from,
+                    `دوهم تایید هم ومنل شو ✅\n\n` +
+                    `د تایید کوډ:\n${randomCode}\n\n` +
+                    `دا کوډ راولېږئ.`
+                  );
+
+                } else {
+
+                  await sendMessage(
+                    sock,
+                    from,
+                    "⚠️ کوډ سم نه دی."
+                  );
+                }
+
+                continue;
+              }
+
+              // STEP 3
+              if (user.step === 3) {
+
+                if (
+                  cleanBody ===
+                  user.verification_sent
+                ) {
+
+                  const registeredCount =
+                    Object.values(users)
+                      .filter(
+                        u =>
+                          u.status ===
+                          "registered"
+                      )
+                      .length;
+
+                  user.status =
+                    "registered";
+
+                  user.step = 4;
+
+                  user.serial_number =
+                    String(
+                      registeredCount + 1
+                    ).padStart(4, "0");
+
+                  user.verification_sent =
+                    "";
+
+                  saveData(
+                    MEMORY_FILE,
+                    users
+                  );
+
+                  await sendMessage(
+                    sock,
+                    from,
+                    `🎉 مبارک!\n\n` +
+                    `ستاسو راجستر بشپړ شو.\n\n` +
+                    `د ثبت شمېره: ${user.serial_number}\n\n` +
+                    `اوس کولی شئ له AI سره خبرې وکړئ.`
+                  );
+
+                } else {
+
+                  await sendMessage(
+                    sock,
+                    from,
+                    "⚠️ د تایید کوډ سم نه دی."
+                  );
+                }
+
+                continue;
+              }
+
+            } finally {
+
+              userLocks.delete(from);
+            }
 
           } catch (error) {
 
             console.log(
-              "Message error:",
+              "❌ Message error:",
               error.message
             );
           }
@@ -787,59 +445,26 @@ async function startBot() {
   } catch (error) {
 
     console.log(
-      "Startup error:",
+      "❌ WhatsApp startup error:",
       error.message
     );
 
-    pairingRequested =
-      false;
-
-    if (
-      reconnectTimer
-    ) {
-      clearTimeout(
-        reconnectTimer
-      );
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
     }
 
     reconnectTimer =
       setTimeout(
         () => {
-          startBot();
+          connectToWhatsApp();
         },
         10000
       );
   }
 }
 
-// ===============================
+// ==================================================
 // START
-// ===============================
+// ==================================================
 
-startBot();
-
-// ===============================
-// SHUTDOWN
-// ===============================
-
-process.on(
-  "SIGTERM",
-  () => {
-    console.log(
-      "SIGTERM received."
-    );
-
-    process.exit(0);
-  }
-);
-
-process.on(
-  "SIGINT",
-  () => {
-    console.log(
-      "SIGINT received."
-    );
-
-    process.exit(0);
-  }
-);
+connectToWhatsApp();
