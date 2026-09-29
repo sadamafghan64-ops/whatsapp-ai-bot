@@ -17,48 +17,59 @@ const QRCode = require("qrcode");
 // SETTINGS
 // ==================================================
 
-const PORT = Number(process.env.PORT) || 10000;
+const PORT =
+  Number(process.env.PORT) || 10000;
 
 const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY || "";
 
 const CHANNEL_LINK =
   process.env.CHANNEL_LINK ||
-  "https://whatsapp.com";
+  "https://whatsapp.com/channel/0029Vb8aj9h6hENnMWzkQE07";
 
 const REGISTRATION_CODE =
   process.env.REGISTRATION_CODE ||
   "SDA25324809$";
 
 // ==================================================
-// ADMIN NUMBERS (FROM ENVIRONMENT VARIABLES)
+// ADMIN NUMBERS
 // ==================================================
 
-const rawAdminPhones = process.env.ADMIN_PHONES || "93774849282,93764835808";
-const ADMIN_PHONES = rawAdminPhones.split(",").map(phone => {
-  const cleanPhone = phone.trim();
-  return cleanPhone.endsWith("@s.whatsapp.net") ? cleanPhone : `${cleanPhone}@s.whatsapp.net`;
-});
+const ADMIN_PHONES = [
+  "93774849282@s.whatsapp.net",
+  "93764835808@s.whatsapp.net"
+];
 
 // ==================================================
 // FILES
 // ==================================================
 
 const AUTH_DIR =
-  path.join(__dirname, "whatsapp_sessions");
+  path.join(
+    __dirname,
+    "whatsapp_sessions"
+  );
 
 const MEMORY_FILE =
-  path.join(__dirname, "bot_memory.json");
+  path.join(
+    __dirname,
+    "bot_memory.json"
+  );
 
 const HISTORY_FILE =
-  path.join(__dirname, "chat_history.json");
+  path.join(
+    __dirname,
+    "chat_history.json"
+  );
 
 // ==================================================
 // GLOBALS
 // ==================================================
 
 let latestQR = "";
+
 let reconnectTimer = null;
+
 let isConnecting = false;
 
 const userLocks = new Set();
@@ -70,14 +81,23 @@ const userLocks = new Set();
 const app = express();
 
 app.get("/", (req, res) => {
+
   res.send(`
     <!DOCTYPE html>
+
     <html>
+
       <head>
+
         <meta charset="UTF-8">
-        <meta name="viewport"
-              content="width=device-width, initial-scale=1">
+
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1"
+        >
+
         <title>WhatsApp AI Bot</title>
+
       </head>
 
       <body style="
@@ -103,8 +123,10 @@ app.get("/", (req, res) => {
         </p>
 
       </body>
+
     </html>
   `);
+
 });
 
 // ==================================================
@@ -114,12 +136,17 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
 
   res.json({
+
     status: "online",
+
     whatsapp:
       latestQR
         ? "waiting_for_qr_scan"
         : "connected_or_starting",
-    time: new Date().toISOString()
+
+    time:
+      new Date().toISOString()
+
   });
 
 });
@@ -177,6 +204,7 @@ app.get("/qr", async (req, res) => {
 
         </html>
       `);
+
     }
 
     const qrImage =
@@ -245,7 +273,7 @@ app.get("/qr", async (req, res) => {
           </p>
 
           <p>
-            که Scan ne sho، پاڼه Refresh کړه.
+            که Scan نه شو، پاڼه Refresh کړه.
           </p>
 
         </body>
@@ -263,6 +291,7 @@ app.get("/qr", async (req, res) => {
     res.status(500).send(
       "QR Code جوړولو کې ستونزه راغله."
     );
+
   }
 
 });
@@ -277,6 +306,7 @@ app.listen(
   () => {
 
     console.log("");
+
     console.log(
       "================================"
     );
@@ -301,7 +331,9 @@ function loadData(file) {
   try {
 
     if (!fs.existsSync(file)) {
+
       return {};
+
     }
 
     const data =
@@ -311,7 +343,9 @@ function loadData(file) {
       );
 
     if (!data.trim()) {
+
       return {};
+
     }
 
     return JSON.parse(data);
@@ -324,6 +358,7 @@ function loadData(file) {
     );
 
     return {};
+
   }
 
 }
@@ -332,7 +367,10 @@ function loadData(file) {
 // JSON SAVE
 // ==================================================
 
-function saveData(file, data) {
+function saveData(
+  file,
+  data
+) {
 
   try {
 
@@ -377,7 +415,9 @@ async function getAIResponse(
 ) {
 
   const historyData =
-    loadData(HISTORY_FILE);
+    loadData(
+      HISTORY_FILE
+    );
 
   const history =
     historyData[userPhone] || [];
@@ -392,11 +432,17 @@ async function getAIResponse(
 
   const systemInstruction = `
 ته د WhatsApp یو AI مرستندوی یې.
+
 د کارونکي خبرې په روانه او ساده پښتو درک کړه.
+
 لنډ، واضح او ګټور ځواب ورکړه.
+
 که کارونکی په پښتو خبرې کوي، په پښتو ځواب ورکړه.
+
 که کارونکی په انګلیسي خبرې کوي، په انګلیسي ځواب ورکولای شې.
+
 د نورو کاروونکو شخصي معلومات مه ښکاره کوه.
+
 خپل ځان د WhatsApp AI مرستندوی په توګه معرفي کړه.
 `;
 
@@ -419,7 +465,8 @@ async function getAIResponse(
 
       parts: [
         {
-          text: item.content
+          text:
+            item.content
         }
       ]
 
@@ -433,7 +480,8 @@ async function getAIResponse(
 
     parts: [
       {
-        text: userMessage
+        text:
+          userMessage
       }
     ]
 
@@ -444,7 +492,7 @@ async function getAIResponse(
     const response =
       await axios.post(
 
-        "https://googleapis.com",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
 
         {
 
@@ -466,7 +514,8 @@ async function getAIResponse(
         {
 
           params: {
-            key: GEMINI_API_KEY
+            key:
+              GEMINI_API_KEY
           },
 
           timeout: 30000
@@ -501,7 +550,8 @@ async function getAIResponse(
 
       role: "user",
 
-      content: userMessage
+      content:
+        userMessage
 
     });
 
@@ -509,7 +559,8 @@ async function getAIResponse(
 
       role: "model",
 
-      content: aiText
+      content:
+        aiText
 
     });
 
@@ -591,3 +642,913 @@ async function simulateTyping(
 
 // ==================================================
 // SEND MESSAGE
+// ==================================================
+
+async function sendMessage(
+  sock,
+  jid,
+  text
+) {
+
+  await simulateTyping(
+    sock,
+    jid,
+    text
+  );
+
+  await sock.sendMessage(
+    jid,
+    {
+      text
+    }
+  );
+
+}
+
+// ==================================================
+// ADMIN COMMANDS
+// ==================================================
+
+async function handleAdmin(
+  sock,
+  jid,
+  text
+) {
+
+  const command =
+    text.trim();
+
+  // حالت
+
+  if (
+    command === "حالت"
+  ) {
+
+    await sendMessage(
+      sock,
+      jid,
+      "✅ Bot فعال دی او WhatsApp سره وصل دی."
+    );
+
+    return true;
+
+  }
+
+  // ping
+
+  if (
+    command.toLowerCase() ===
+    "ping"
+  ) {
+
+    await sendMessage(
+      sock,
+      jid,
+      "pong ✅"
+    );
+
+    return true;
+
+  }
+
+  // لیست
+
+  if (
+    command === "لیست"
+  ) {
+
+    const users =
+      loadData(
+        MEMORY_FILE
+      );
+
+    const registered =
+      Object.values(users)
+        .filter(
+          user =>
+            user.status ===
+            "registered"
+        );
+
+    if (
+      registered.length === 0
+    ) {
+
+      await sendMessage(
+        sock,
+        jid,
+        "📊 تر اوسه هېڅ ثبت شوی کارن نشته."
+      );
+
+      return true;
+
+    }
+
+    let result =
+      "📊 ثبت شوي کارنان:\n\n";
+
+    registered.forEach(
+      (user, index) => {
+
+        const phone =
+          String(
+            user.phone || ""
+          ).replace(
+            "@s.whatsapp.net",
+            ""
+          );
+
+        result +=
+          `${index + 1}. ` +
+          `شمېره: ${user.serial_number || "-"} ` +
+          `نمبر: +${phone}\n`;
+
+      }
+    );
+
+    await sendMessage(
+      sock,
+      jid,
+      result
+    );
+
+    return true;
+
+  }
+
+  return false;
+
+}
+
+// ==================================================
+// WHATSAPP CONNECTION
+// ==================================================
+
+async function connectToWhatsApp() {
+
+  if (isConnecting) {
+
+    return;
+
+  }
+
+  isConnecting = true;
+
+  try {
+
+    console.log("");
+
+    console.log(
+      "🚀 Starting WhatsApp..."
+    );
+
+    // Auth directory جوړول
+
+    if (
+      !fs.existsSync(
+        AUTH_DIR
+      )
+    ) {
+
+      fs.mkdirSync(
+        AUTH_DIR,
+        {
+          recursive: true
+        }
+      );
+
+    }
+
+    const {
+      state,
+      saveCreds
+    } =
+      await useMultiFileAuthState(
+        AUTH_DIR
+      );
+
+    const sock =
+      makeWASocket({
+
+        auth: state,
+
+        logger:
+          pino({
+            level:
+              "silent"
+          }),
+
+        markOnlineOnConnect:
+          false,
+
+        syncFullHistory:
+          false
+
+      });
+
+    // Save WhatsApp session
+
+    sock.ev.on(
+      "creds.update",
+      saveCreds
+    );
+
+    // ==================================================
+    // CONNECTION UPDATE
+    // ==================================================
+
+    sock.ev.on(
+      "connection.update",
+      async update => {
+
+        const {
+          connection,
+          lastDisconnect,
+          qr
+        } = update;
+
+        // ----------------------------------------------
+        // QR CODE
+        // ----------------------------------------------
+
+        if (qr) {
+
+          latestQR =
+            qr;
+
+          console.log("");
+
+          console.log(
+            "======================================"
+          );
+
+          console.log(
+            "📱 WHATSAPP QR CODE READY"
+          );
+
+          console.log(
+            "======================================"
+          );
+
+          console.log(
+            "Open your Render /qr page."
+          );
+
+          console.log(
+            "======================================"
+          );
+
+          console.log("");
+
+        }
+
+        // ----------------------------------------------
+        // CONNECTED
+        // ----------------------------------------------
+
+        if (
+          connection === "open"
+        ) {
+
+          latestQR =
+            "";
+
+          isConnecting =
+            false;
+
+          console.log("");
+
+          console.log(
+            "======================================"
+          );
+
+          console.log(
+            "✅ WHATSAPP CONNECTED SUCCESSFULLY"
+          );
+
+          console.log(
+            "======================================"
+          );
+
+          console.log("");
+
+        }
+
+        // ----------------------------------------------
+        // DISCONNECTED
+        // ----------------------------------------------
+
+        if (
+          connection === "close"
+        ) {
+
+          isConnecting =
+            false;
+
+          const statusCode =
+            new Boom(
+              lastDisconnect?.error
+            )
+              ?.output
+              ?.statusCode;
+
+          console.log("");
+
+          console.log(
+            "❌ WhatsApp disconnected:",
+            statusCode
+          );
+
+          // Logged out
+
+          if (
+            statusCode ===
+            DisconnectReason.loggedOut
+          ) {
+
+            latestQR =
+              "";
+
+            console.log(
+              "⚠️ WhatsApp session logged out."
+            );
+
+            console.log(
+              "Delete the old session and connect again."
+            );
+
+            return;
+
+          }
+
+          // Reconnect
+
+          if (
+            reconnectTimer
+          ) {
+
+            clearTimeout(
+              reconnectTimer
+            );
+
+          }
+
+          reconnectTimer =
+            setTimeout(
+              () => {
+
+                console.log(
+                  "🔄 Reconnecting WhatsApp..."
+                );
+
+                connectToWhatsApp();
+
+              },
+              5000
+            );
+
+        }
+
+      }
+    );
+
+    // ==================================================
+    // MESSAGES
+    // ==================================================
+
+    sock.ev.on(
+      "messages.upsert",
+      async ({
+        messages,
+        type
+      }) => {
+
+        if (
+          type !== "notify"
+        ) {
+
+          return;
+
+        }
+
+        for (
+          const msg
+          of messages
+        ) {
+
+          try {
+
+            // No message
+
+            if (
+              !msg.message
+            ) {
+
+              continue;
+
+            }
+
+            // Ignore own message
+
+            if (
+              msg.key.fromMe
+            ) {
+
+              continue;
+
+            }
+
+            const from =
+              msg.key.remoteJid;
+
+            if (!from) {
+
+              continue;
+
+            }
+
+            // Ignore groups
+
+            if (
+              isJidGroup(from)
+            ) {
+
+              continue;
+
+            }
+
+            const message =
+              msg.message;
+
+            let body = "";
+
+            // Normal text
+
+            if (
+              message.conversation
+            ) {
+
+              body =
+                message.conversation;
+
+            }
+
+            // Extended text
+
+            else if (
+              message
+                .extendedTextMessage
+                ?.text
+            ) {
+
+              body =
+                message
+                  .extendedTextMessage
+                  .text;
+
+            }
+
+            // Image caption
+
+            else if (
+              message
+                .imageMessage
+                ?.caption
+            ) {
+
+              body =
+                message
+                  .imageMessage
+                  .caption;
+
+            }
+
+            // Video caption
+
+            else if (
+              message
+                .videoMessage
+                ?.caption
+            ) {
+
+              body =
+                message
+                  .videoMessage
+                  .caption;
+
+            }
+
+            const cleanBody =
+              body.trim();
+
+            if (!cleanBody) {
+
+              continue;
+
+            }
+
+            // Prevent duplicate processing
+
+            if (
+              userLocks.has(from)
+            ) {
+
+              continue;
+
+            }
+
+            userLocks.add(from);
+
+            try {
+
+              const users =
+                loadData(
+                  MEMORY_FILE
+                );
+
+              // ==================================================
+              // ADMIN
+              // ==================================================
+
+              if (
+                isAdmin(from)
+              ) {
+
+                const handled =
+                  await handleAdmin(
+                    sock,
+                    from,
+                    cleanBody
+                  );
+
+                if (handled) {
+
+                  continue;
+
+                }
+
+                const aiReply =
+                  await getAIResponse(
+                    from,
+                    cleanBody
+                  );
+
+                await sendMessage(
+                  sock,
+                  from,
+                  aiReply
+                );
+
+                continue;
+
+              }
+
+              // ==================================================
+              // NEW USER
+              // ==================================================
+
+              if (!users[from]) {
+
+                users[from] = {
+
+                  phone:
+                    from,
+
+                  status:
+                    "unregistered",
+
+                  step:
+                    1,
+
+                  serial_number:
+                    "",
+
+                  created_at:
+                    new Date()
+                      .toISOString(),
+
+                  last_message:
+                    new Date()
+                      .toISOString(),
+
+                  messages:
+                    1
+
+                };
+
+                saveData(
+                  MEMORY_FILE,
+                  users
+                );
+
+                const welcome =
+                  `ښه راغلاست! 🌷\n\n` +
+                  `د راجستر لپاره لومړی لاندې AI Studio لینک ته لاړ شئ او اړوند راجستر کلی ترلاسه کړئ، بیا ترلاسه شوی کلی دلته راولېږئ.\n\n` +
+                  `🔗 لینک:\n${CHANNEL_LINK}\n\n` +
+                  `🔑 د راجستر کلی:\n${REGISTRATION_CODE}`;
+
+                await sendMessage(
+                  sock,
+                  from,
+                  welcome
+                );
+
+                continue;
+
+              }
+
+              // ==================================================
+              // EXISTING USER
+              // ==================================================
+
+              const user =
+                users[from];
+
+              user.last_message =
+                new Date()
+                  .toISOString();
+
+              user.messages =
+                (user.messages || 0) + 1;
+
+              // ==================================================
+              // REGISTERED
+              // ==================================================
+
+              if (
+                user.status ===
+                "registered"
+              ) {
+
+                saveData(
+                  MEMORY_FILE,
+                  users
+                );
+
+                const aiReply =
+                  await getAIResponse(
+                    from,
+                    cleanBody
+                  );
+
+                await sendMessage(
+                  sock,
+                  from,
+                  aiReply
+                );
+
+                continue;
+
+              }
+
+              // ==================================================
+              // STEP 1
+              // لومړی ځل صحیح کلی
+              // ==================================================
+
+              if (
+                user.step === 1
+              ) {
+
+                if (
+                  cleanBody ===
+                  REGISTRATION_CODE
+                ) {
+
+                  // دوهم پړاو ته انتقال
+                  user.step =
+                    2;
+
+                  saveData(
+                    MEMORY_FILE,
+                    users
+                  );
+
+                  await sendMessage(
+                    sock,
+                    from,
+                    `⚠️ بیا کوشش وکړئ.\n\n` +
+                    `کېدای شي تاسو AI Studio نه وی Follow کړی یا تخنیکي ستونزه وي.\n\n` +
+                    `مهرباني وکړئ لاندې لینک ته بیا لاړ شئ او د راجستر کلی بیا ترلاسه کړئ، بیا یې دلته راولېږئ.\n\n` +
+                    `🔗 لینک:\n${CHANNEL_LINK}\n\n` +
+                    `🔑 د راجستر کلی:\n${REGISTRATION_CODE}`
+                  );
+
+                } else {
+
+                  await sendMessage(
+                    sock,
+                    from,
+                    `⚠️ د راجستر کلی سم نه دی.\n\n` +
+                    `مهرباني وکړئ لاندې AI Studio لینک ته لاړ شئ او د راجستر کلی ترلاسه کړئ، بیا یې دلته راولېږئ.\n\n` +
+                    `🔗 لینک:\n${CHANNEL_LINK}\n\n` +
+                    `🔑 د راجستر کلی:\n${REGISTRATION_CODE}`
+                  );
+
+                }
+
+                continue;
+
+              }
+
+              // ==================================================
+              // STEP 2
+              // دوهم ځل صحیح کلی = مستقیم راجستر
+              // ==================================================
+
+              if (
+                user.step === 2
+              ) {
+
+                if (
+                  cleanBody ===
+                  REGISTRATION_CODE
+                ) {
+
+                  const registeredCount =
+                    Object.values(
+                      users
+                    )
+                      .filter(
+                        u =>
+                          u.status ===
+                          "registered"
+                      )
+                      .length;
+
+                  user.status =
+                    "registered";
+
+                  user.step =
+                    3;
+
+                  user.serial_number =
+                    String(
+                      registeredCount + 1
+                    ).padStart(
+                      4,
+                      "0"
+                    );
+
+                  saveData(
+                    MEMORY_FILE,
+                    users
+                  );
+
+                  await sendMessage(
+                    sock,
+                    from,
+                    `🎉 مبارک!\n\n` +
+                    `ستاسو راجستر په بریالیتوب بشپړ شو. ✅\n\n` +
+                    `📋 د ثبت شمېره: ${user.serial_number}\n\n` +
+                    `اوس کولی شئ له AI سره هر ډول پوښتنې وکړئ. 🤖`
+                  );
+
+                } else {
+
+                  await sendMessage(
+                    sock,
+                    from,
+                    `⚠️ د راجستر کلی سم نه دی.\n\n` +
+                    `مهرباني وکړئ لاندې لینک ته لاړ شئ او صحیح کلی بیا ترلاسه کړئ:\n\n` +
+                    `🔗 لینک:\n${CHANNEL_LINK}\n\n` +
+                    `🔑 د راجستر کلی:\n${REGISTRATION_CODE}`
+                  );
+
+                }
+
+                continue;
+
+              }
+
+              // ==================================================
+              // FALLBACK FOR UNREGISTERED USERS
+              // ==================================================
+
+              if (
+                user.status !==
+                "registered"
+              ) {
+
+                user.step =
+                  user.step || 1;
+
+                saveData(
+                  MEMORY_FILE,
+                  users
+                );
+
+                await sendMessage(
+                  sock,
+                  from,
+                  `⚠️ لومړی باید راجستر شئ.\n\n` +
+                  `لاندې AI Studio لینک ته لاړ شئ او د راجستر کلی ترلاسه کړئ:\n\n` +
+                  `🔗 لینک:\n${CHANNEL_LINK}\n\n` +
+                  `🔑 د راجستر کلی:\n${REGISTRATION_CODE}`
+                );
+
+                continue;
+
+              }
+
+            } finally {
+
+              userLocks.delete(
+                from
+              );
+
+            }
+
+          } catch (error) {
+
+            console.log(
+              "❌ Message error:",
+              error.message
+            );
+
+            if (
+              msg.key.remoteJid
+            ) {
+
+              userLocks.delete(
+                msg.key.remoteJid
+              );
+
+            }
+
+          }
+
+        }
+
+      }
+    );
+
+  } catch (error) {
+
+    isConnecting =
+      false;
+
+    console.log(
+      "❌ WhatsApp startup error:",
+      error.message
+    );
+
+    if (
+      reconnectTimer
+    ) {
+
+      clearTimeout(
+        reconnectTimer
+      );
+
+    }
+
+    reconnectTimer =
+      setTimeout(
+        () => {
+
+          connectToWhatsApp();
+
+        },
+        10000
+      );
+
+  }
+
+}
+
+// ==================================================
+// START BOT
+// ==================================================
+
+connectToWhatsApp();
+
+// ==================================================
+// SHUTDOWN
+// ==================================================
+
+process.on(
+  "SIGTERM",
+  () => {
+
+    console.log(
+      "SIGTERM received."
+    );
+
+    process.exit(0);
+
+  }
+);
+
+process.on(
+  "SIGINT",
+  () => {
+
+    console.log(
+      "SIGINT received."
+    );
+
+    process.exit(0);
+
+  }
+);
