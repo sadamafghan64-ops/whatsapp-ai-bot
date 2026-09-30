@@ -497,7 +497,7 @@ async function getAIResponse(
     const response =
       await axios.post(
 
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
 
         {
 
@@ -869,10 +869,6 @@ async function connectToWhatsApp() {
           qr
         } = update;
 
-        // ==================================================
-        // QR CODE
-        // ==================================================
-
         if (qr) {
 
           latestQR =
@@ -907,10 +903,6 @@ async function connectToWhatsApp() {
 
         }
 
-        // ==================================================
-        // CONNECTED
-        // ==================================================
-
         if (
           connection === "open"
         ) {
@@ -941,10 +933,6 @@ async function connectToWhatsApp() {
           console.log("");
 
         }
-
-        // ==================================================
-        // DISCONNECTED
-        // ==================================================
 
         if (
           connection === "close"
