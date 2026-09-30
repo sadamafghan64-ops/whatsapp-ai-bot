@@ -28,8 +28,7 @@ const CHANNEL_LINK =
   "https://whatsapp.com/channel/0029Vb8aj9h6hENnMWzkQE07";
 
 const REGISTRATION_CODE =
-  process.env.REGISTRATION_CODE ||
-  "SDA25324809$";
+  process.env.REGISTRATION_CODE || "";
 
 // ==================================================
 // ADMIN NUMBERS
@@ -71,6 +70,8 @@ let latestQR = "";
 let reconnectTimer = null;
 
 let isConnecting = false;
+
+let whatsappConnected = false;
 
 const userLocks = new Set();
 
@@ -140,9 +141,11 @@ app.get("/health", (req, res) => {
     status: "online",
 
     whatsapp:
-      latestQR
-        ? "waiting_for_qr_scan"
-        : "connected_or_starting",
+      whatsappConnected
+        ? "connected"
+        : latestQR
+          ? "waiting_for_qr_scan"
+          : "starting_or_disconnected",
 
     time:
       new Date().toISOString()
@@ -425,7 +428,7 @@ async function getAIResponse(
   if (!GEMINI_API_KEY) {
 
     return (
-      "⚠️ Gemini API Key تنظیم شوی نه دی."
+      "⚠️ Gemini API Key په Render کې تنظیم شوی نه دی."
     );
 
   }
@@ -466,7 +469,9 @@ async function getAIResponse(
       parts: [
         {
           text:
-            item.content
+            String(
+              item.content || ""
+            )
         }
       ]
 
@@ -488,10 +493,6 @@ async function getAIResponse(
   });
 
   try {
-
-    // ==================================================
-    // GEMINI API
-    // ==================================================
 
     const response =
       await axios.post(
@@ -533,10 +534,6 @@ async function getAIResponse(
 
       );
 
-    // ==================================================
-    // AI RESPONSE
-    // ==================================================
-
     const parts =
       response.data
         ?.candidates?.[0]
@@ -553,15 +550,15 @@ async function getAIResponse(
 
     if (!aiText) {
 
+      console.log(
+        "⚠️ Gemini returned an empty response."
+      );
+
       return (
         "بښنه، AI اوس ځواب نشي جوړولی."
       );
 
     }
-
-    // ==================================================
-    // SAVE HISTORY
-    // ==================================================
 
     history.push({
 
@@ -805,6 +802,8 @@ async function connectToWhatsApp() {
 
   isConnecting = true;
 
+  whatsappConnected = false;
+
   try {
 
     console.log("");
@@ -879,6 +878,9 @@ async function connectToWhatsApp() {
           latestQR =
             qr;
 
+          whatsappConnected =
+            false;
+
           console.log("");
 
           console.log(
@@ -919,6 +921,9 @@ async function connectToWhatsApp() {
           isConnecting =
             false;
 
+          whatsappConnected =
+            true;
+
           console.log("");
 
           console.log(
@@ -948,6 +953,9 @@ async function connectToWhatsApp() {
           isConnecting =
             false;
 
+          whatsappConnected =
+            false;
+
           const statusCode =
             new Boom(
               lastDisconnect?.error
@@ -975,7 +983,7 @@ async function connectToWhatsApp() {
             );
 
             console.log(
-              "Delete the old session and connect again."
+              "A new QR connection is required."
             );
 
             return;
@@ -995,6 +1003,9 @@ async function connectToWhatsApp() {
           reconnectTimer =
             setTimeout(
               () => {
+
+                reconnectTimer =
+                  null;
 
                 console.log(
                   "🔄 Reconnecting WhatsApp..."
@@ -1187,6 +1198,22 @@ async function connectToWhatsApp() {
               }
 
               // ==================================================
+              // REGISTRATION CODE CHECK
+              // ==================================================
+
+              if (!REGISTRATION_CODE) {
+
+                await sendMessage(
+                  sock,
+                  from,
+                  "⚠️ د راجستر سیستم اوس فعال نه دی. مهرباني وکړئ وروسته بیا هڅه وکړئ."
+                );
+
+                continue;
+
+              }
+
+              // ==================================================
               // NEW USER
               // ==================================================
 
@@ -1226,9 +1253,9 @@ async function connectToWhatsApp() {
 
                 const welcome =
                   `ښه راغلاست! 🌷\n\n` +
-                  `د راجستر لپاره لومړی لاندې AI Studio لینک ته لاړ شئ او اړوند راجستر کلی ترلاسه کړئ، بیا ترلاسه شوی کلی دلته راولېږئ.\n\n` +
+                  `د AI خدمت د کارولو لپاره لومړی د لاندې لینک له لارې خپل د راجستر کلی ترلاسه کړئ.\n\n` +
                   `🔗 لینک:\n${CHANNEL_LINK}\n\n` +
-                  `🔑 د راجستر کلی:\n${REGISTRATION_CODE}`;
+                  `کله چې کلی ترلاسه کړئ، همدلته یې راولېږئ.`;
 
                 await sendMessage(
                   sock,
@@ -1285,59 +1312,12 @@ async function connectToWhatsApp() {
               }
 
               // ==================================================
-              // STEP 1
+              // REGISTRATION
               // ==================================================
 
               if (
-                user.step === 1
-              ) {
-
-                if (
-                  cleanBody ===
-                  REGISTRATION_CODE
-                ) {
-
-                  user.step =
-                    2;
-
-                  saveData(
-                    MEMORY_FILE,
-                    users
-                  );
-
-                  await sendMessage(
-                    sock,
-                    from,
-                    `⚠️ بیا کوشش وکړئ.\n\n` +
-                    `کېدای شي تاسو AI Studio نه وی Follow کړی یا تخنیکي ستونزه وي.\n\n` +
-                    `مهرباني وکړئ لاندې لینک ته بیا لاړ شئ او د راجستر کلی بیا ترلاسه کړئ، بیا یې دلته راولېږئ.\n\n` +
-                    `🔗 لینک:\n${CHANNEL_LINK}\n\n` +
-                    `🔑 د راجستر کلی:\n${REGISTRATION_CODE}`
-                  );
-
-                } else {
-
-                  await sendMessage(
-                    sock,
-                    from,
-                    `⚠️ د راجستر کلی سم نه دی.\n\n` +
-                    `مهرباني وکړئ لاندې AI Studio لینک ته لاړ شئ او د راجستر کلی ترلاسه کړئ، بیا یې دلته راولېږئ.\n\n` +
-                    `🔗 لینک:\n${CHANNEL_LINK}\n\n` +
-                    `🔑 د راجستر کلی:\n${REGISTRATION_CODE}`
-                  );
-
-                }
-
-                continue;
-
-              }
-
-              // ==================================================
-              // STEP 2
-              // ==================================================
-
-              if (
-                user.step === 2
+                user.status !==
+                "registered"
               ) {
 
                 if (
@@ -1370,6 +1350,10 @@ async function connectToWhatsApp() {
                       "0"
                     );
 
+                  user.registered_at =
+                    new Date()
+                      .toISOString();
+
                   saveData(
                     MEMORY_FILE,
                     users
@@ -1381,7 +1365,7 @@ async function connectToWhatsApp() {
                     `🎉 مبارک!\n\n` +
                     `ستاسو راجستر په بریالیتوب بشپړ شو. ✅\n\n` +
                     `📋 د ثبت شمېره: ${user.serial_number}\n\n` +
-                    `اوس کولی شئ له AI سره هر ډول پوښتنې وکړئ. 🤖`
+                    `اوس کولی شئ له AI سره خپلې پوښتنې وکړئ. 🤖`
                   );
 
                 } else {
@@ -1390,42 +1374,11 @@ async function connectToWhatsApp() {
                     sock,
                     from,
                     `⚠️ د راجستر کلی سم نه دی.\n\n` +
-                    `مهرباني وکړئ لاندې لینک ته لاړ شئ او صحیح کلی بیا ترلاسه کړئ:\n\n` +
-                    `🔗 لینک:\n${CHANNEL_LINK}\n\n` +
-                    `🔑 د راجستر کلی:\n${REGISTRATION_CODE}`
+                    `مهرباني وکړئ لاندې لینک ته لاړ شئ، خپل صحیح کلی ترلاسه کړئ او بیا یې دلته راولېږئ.\n\n` +
+                    `🔗 لینک:\n${CHANNEL_LINK}`
                   );
 
                 }
-
-                continue;
-
-              }
-
-              // ==================================================
-              // FALLBACK
-              // ==================================================
-
-              if (
-                user.status !==
-                "registered"
-              ) {
-
-                user.step =
-                  user.step || 1;
-
-                saveData(
-                  MEMORY_FILE,
-                  users
-                );
-
-                await sendMessage(
-                  sock,
-                  from,
-                  `⚠️ لومړی باید راجستر شئ.\n\n` +
-                  `لاندې AI Studio لینک ته لاړ شئ او د راجستر کلی ترلاسه کړئ:\n\n` +
-                  `🔗 لینک:\n${CHANNEL_LINK}\n\n` +
-                  `🔑 د راجستر کلی:\n${REGISTRATION_CODE}`
-                );
 
                 continue;
 
@@ -1468,6 +1421,9 @@ async function connectToWhatsApp() {
     isConnecting =
       false;
 
+    whatsappConnected =
+      false;
+
     console.log(
       "❌ WhatsApp startup error:",
       error.message
@@ -1486,6 +1442,9 @@ async function connectToWhatsApp() {
     reconnectTimer =
       setTimeout(
         () => {
+
+          reconnectTimer =
+            null;
 
           connectToWhatsApp();
 
@@ -1532,11 +1491,3 @@ process.on(
 
   }
 );
-
-یوازې مهم بدلون: د Gemini غوښتنه اوس د رسمي "x-goog-api-key" header له لارې API key لېږي؛ "gemini-2.5-flash" او "generateContent" هماغسې ساتل شوي.
-
-په Render کې باید Environment Variable داسې وي:
-
-GEMINI_API_KEY = ستا Gemini API Key
-
-او په "index.js" کې API key مه لیکه.
